@@ -1,0 +1,16 @@
+.container {
+    display: grid;
+    width: 95vw;
+    height: 95vh;
+    grid-template-rows: 70vh 100px 1fr;
+}
+
+.buttons {
+    display: flex;
+    justify-content: center;
+}
+
+button {
+    margin: 10px;
+    padding: 10px;
+}
