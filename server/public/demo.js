@@ -12,7 +12,6 @@ window.createSession = isPublisher => {
     ]
   })
   pc.oniceconnectionstatechange = e => {
-    console.log(e)
     log(pc.iceConnectionState)
   }
   pc.onicecandidate = event => {
@@ -25,7 +24,6 @@ window.createSession = isPublisher => {
         message: btoa(JSON.stringify(pc.localDescription)),
         status: 200
       };
-      console.log(rtcKey)
       fetch(url, {
         method: 'post',
         headers: {
@@ -35,7 +33,6 @@ window.createSession = isPublisher => {
       }).then(res => {
         return res.json();
       }).then(data => {
-        console.log(data)
         if (data.hasOwnProperty("message")) {
           startSession(data.message);
         } else {
@@ -89,7 +86,7 @@ window.createSession = isPublisher => {
 }
 
 const testClient = () => {
-  client = window.open("http://localhost:8080/#/client", '_blank').focus()
+  client = window.open(`${window.location.protocol}//${window.location.hostname}:${window.location.port}/#/client`, '_blank').focus()
 }
 
 function isClient() {
