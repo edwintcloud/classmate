@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"os"
 	"sync"
 	"time"
 
@@ -103,7 +104,7 @@ func main() {
 	})
 
 	// Start server
-	e.Logger.Fatal(e.Start(":8080"))
+	e.Logger.Fatal(e.Start(os.Getenv("PORT")))
 
 }
 
