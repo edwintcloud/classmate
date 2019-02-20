@@ -17,16 +17,21 @@ window.createSession = isPublisher => {
   }
   pc.onicecandidate = event => {
     if (event.candidate === null) {
-      let url = "http://localhost:8080/peer"
+      let url = `${window.location.protocol}//${window.location.hostname}:${window.location.port}/peer`
       if (isPublisher) {
-        url = "http://localhost:8080/initiator"
+        url = `${window.location.protocol}//${window.location.hostname}:${window.location.port}/host`
       }
+      const rtcKey = {
+        message: btoa(JSON.stringify(pc.localDescription)),
+        status: 200
+      };
+      console.log(rtcKey)
       fetch(url, {
         method: 'post',
         headers: {
           'Content-Type': 'application/json'
         },
-        body: btoa(JSON.stringify(pc.localDescription))
+        body: JSON.stringify(rtcKey)
       }).then(res => {
         return res.json();
       }).then(data => {

@@ -3,14 +3,13 @@ package main
 import (
 	"encoding/base64"
 	"encoding/json"
-	"fmt"
-	"io/ioutil"
-	"log"
+	"errors"
 	"net/http"
-	"strings"
 	"sync"
 	"time"
 
+	"github.com/labstack/echo"
+	"github.com/labstack/echo/middleware"
 	"github.com/pions/rtcp"
 	"github.com/pions/rtp"
 	"github.com/pions/webrtc"
@@ -24,14 +23,10 @@ type Response struct {
 }
 
 // make channels we will need
-var peer = make(chan string)
-var initiator = make(chan string)
-var peerAns = make(chan string)
-var initiatorAns = make(chan string)
-var inboundSSRC = make(chan uint32)
-var inboundPayloadType = make(chan uint8)
+var hostSSRC uint32
+var hostPayloadType uint8
 var outboundRTP = []chan<- *rtp.Packet{}
-var outboundRTPLock sync.RWMutex
+var mutex sync.RWMutex
 
 // ice: Interactive Connection Establishment RFC 5245
 // each client sends connectivity ping every 20ms
@@ -48,276 +43,230 @@ var connectionConfig = webrtc.Configuration{
 
 func main() {
 
-	// handle / route by serving files in public
-	http.Handle("/", http.FileServer(http.Dir("public")))
+	// register echo instance
+	e := echo.New()
 
-	// handle sdp peer requests
-	http.HandleFunc("/peer", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Println("peer")
+	// register logging middleware with echo instance
+	e.Use(middleware.LoggerWithConfig(middleware.LoggerConfig{
+		Format: "${method}  ${uri}  ${latency_human}  ${status}\n",
+	}))
 
-		// read req body buffer into byte slice
-		body, err := ioutil.ReadAll(r.Body)
+	// serve public folder as /
+	e.Static("/", "public")
+
+	// host connection
+	e.POST("/host", func(c echo.Context) error {
+		body := Response{}
+		err := c.Bind(&body)
 		if err != nil {
-			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(Response{
+			return c.JSON(http.StatusBadRequest, Response{
+				Message: err.Error(),
+				Status:  http.StatusBadRequest,
+			})
+		}
+		answer, err := startHost(body.Message)
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, Response{
 				Message: err.Error(),
 				Status:  http.StatusBadRequest,
 			})
 		}
 
-		// send string body to peer channel
-		peer <- string(body)
-
-		// wait for answer from offerer
-		answer := <-peerAns
-
-		// if answer contains error, respond with error
-		if strings.Contains(answer, "error:") {
-			json.NewEncoder(w).Encode(Response{
-				Message: strings.Replace(answer, "error: ", "", 1),
-				Status:  http.StatusBadRequest,
-			})
-		} else {
-			// respond with answer
-			json.NewEncoder(w).Encode(Response{
-				Message: answer,
-				Status:  http.StatusOK,
-			})
-		}
+		return c.JSON(http.StatusOK, Response{
+			Message: answer,
+			Status:  http.StatusOK,
+		})
 	})
 
-	// handle sdp initiator request
-	http.HandleFunc("/initiator", func(w http.ResponseWriter, r *http.Request) {
-
-		// read req body buffer into byte slice
-		body, err := ioutil.ReadAll(r.Body)
+	// peer connection
+	e.POST("/peer", func(c echo.Context) error {
+		body := Response{}
+		err := c.Bind(&body)
 		if err != nil {
-			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(Response{
+			return c.JSON(http.StatusBadRequest, Response{
+				Message: err.Error(),
+				Status:  http.StatusBadRequest,
+			})
+		}
+		answer, err := connectPeer(body.Message)
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, Response{
 				Message: err.Error(),
 				Status:  http.StatusBadRequest,
 			})
 		}
 
-		// send string body to peer channel
-		initiator <- string(body)
-
-		// wait for answer from offerer
-		answer := <-initiatorAns
-
-		// if answer contains error, respond with error
-		if strings.Contains(answer, "error:") {
-			json.NewEncoder(w).Encode(Response{
-				Message: strings.Replace(answer, "error: ", "", 1),
-				Status:  http.StatusBadRequest,
-			})
-		} else {
-			// respond with answer
-			json.NewEncoder(w).Encode(Response{
-				Message: answer,
-				Status:  http.StatusOK,
-			})
-		}
+		return c.JSON(http.StatusOK, Response{
+			Message: answer,
+			Status:  http.StatusOK,
+		})
 	})
 
-	// wait for initiator connections in a new routine
-	go waitForInitiators()
+	// Start server
+	e.Logger.Fatal(e.Start(":8080"))
 
-	// start http server and listen for requests
-	fmt.Println("Starting http server on port", 8080)
-	err := http.ListenAndServe(":8080", nil)
+}
+
+func startHost(clientKey string) (string, error) {
+	offer := webrtc.SessionDescription{}
+
+	// decode message
+	decodedMessage, err := base64.StdEncoding.DecodeString(clientKey)
 	if err != nil {
-		log.Fatalf("Unable to start http server: " + err.Error())
+		return "", err
 	}
+
+	// unmarshal decodedMessage into offer struct
+	err = json.Unmarshal(decodedMessage, &offer)
+	if err != nil {
+		return "", err
+	}
+
+	// setup transport to use VP8 codec
+	webrtc.RegisterCodec(webrtc.NewRTPVP8Codec(webrtc.DefaultPayloadTypeVP8, 90000))
+
+	// create new rtc peer connection
+	initiatorConnection, err := webrtc.NewPeerConnection(connectionConfig)
+	if err != nil {
+		return "", err
+	}
+
+	// setup handler for when new initiator track starts
+	// handler will distribute packets to connected peers
+	initiatorConnection.OnTrack(func(track *webrtc.Track) {
+
+		// Send a PLI on an interval so that the publisher is pushing a keyframe every rtcpPLIInterval
+		// This can be less wasteful by processing incoming RTCP events, then we would emit a NACK/PLI when a viewer requests it
+		go func() {
+			ticker := time.NewTicker(time.Second * 3)
+			for range ticker.C {
+				if err := initiatorConnection.SendRTCP(&rtcp.PictureLossIndication{MediaSSRC: track.SSRC}); err != nil {
+					return
+				}
+			}
+		}()
+
+		// send track SSRC and PayloadType onto respective channels
+		mutex.Lock()
+		hostSSRC = track.SSRC
+		hostPayloadType = track.PayloadType
+		mutex.Unlock()
+		// continuously send packets to connected clients
+		// until stopPackets is true
+		for {
+			rtpPacket := <-track.Packets
+
+			mutex.RLock()
+			for _, outChan := range outboundRTP {
+				outPacket := rtpPacket
+				outPacket.Payload = append([]byte{}, outPacket.Payload...)
+				select {
+				case outChan <- outPacket:
+				default:
+				}
+			}
+			mutex.RUnlock()
+		}
+	})
+
+	// state change listener
+	initiatorConnection.OnICEConnectionStateChange(func(s ice.ConnectionState) {
+		if s == ice.ConnectionStateDisconnected {
+			return
+		}
+	})
+
+	// set initiator SessionDescription
+	err = initiatorConnection.SetRemoteDescription(offer)
+	if err != nil {
+		return "", err
+	}
+
+	// create answer
+	answer, err := initiatorConnection.CreateAnswer(nil)
+	if err != nil {
+		return "", err
+	}
+
+	// set local description and start udp listeners
+	err = initiatorConnection.SetLocalDescription(answer)
+	if err != nil {
+		return "", err
+	}
+
+	// convert json answer into byte slice
+	bytes, err := json.Marshal(answer)
+	if err != nil {
+		return "", err
+	}
+
+	// encode answer to base64 and send to ans channel
+	return base64.StdEncoding.EncodeToString(bytes), nil
 }
 
-func waitForInitiators() {
-	for {
+func connectPeer(clientKey string) (string, error) {
 
-		offer := webrtc.SessionDescription{}
-
-		// wait from a message to be sent to the sdp channel
-		message := <-initiator
-
-		// decode message
-		decodedMessage, err := base64.StdEncoding.DecodeString(message)
-		if err != nil {
-			initiatorAns <- "error: " + err.Error()
-			continue
-		}
-
-		// unmarshal decodedMessage into offer struct
-		err = json.Unmarshal(decodedMessage, &offer)
-		if err != nil {
-			initiatorAns <- "error: " + err.Error()
-			continue
-		}
-
-		// setup transport to use VP8 codec
-		webrtc.RegisterCodec(webrtc.NewRTPVP8Codec(webrtc.DefaultPayloadTypeVP8, 90000))
-
-		// create new rtc peer connection
-		initiatorConnection, err := webrtc.NewPeerConnection(connectionConfig)
-		if err != nil {
-			initiatorAns <- "error: " + err.Error()
-			continue
-		}
-
-		// setup handler for when new initiator track starts
-		// handler will distribute packets to connected peers
-		initiatorConnection.OnTrack(func(track *webrtc.Track) {
-
-			// Send a PLI on an interval so that the publisher is pushing a keyframe every rtcpPLIInterval
-			// This can be less wasteful by processing incoming RTCP events, then we would emit a NACK/PLI when a viewer requests it
-			go func() {
-				ticker := time.NewTicker(time.Second * 3)
-				for range ticker.C {
-					if err := initiatorConnection.SendRTCP(&rtcp.PictureLossIndication{MediaSSRC: track.SSRC}); err != nil {
-						fmt.Println(err)
-						return
-					}
-				}
-			}()
-
-			// send track SSRC and PayloadType onto respective channels
-			inboundSSRC <- track.SSRC
-			inboundPayloadType <- track.PayloadType
-
-			// continuously send packets to connected clients
-			// until stopPackets is true
-			for {
-				rtpPacket := <-track.Packets
-
-				outboundRTPLock.RLock()
-				for _, outChan := range outboundRTP {
-					outPacket := rtpPacket
-					outPacket.Payload = append([]byte{}, outPacket.Payload...)
-					select {
-					case outChan <- outPacket:
-					default:
-					}
-				}
-				outboundRTPLock.RUnlock()
-			}
-		})
-
-		// state change listener
-		initiatorConnection.OnICEConnectionStateChange(func(s ice.ConnectionState) {
-			if s == ice.ConnectionStateDisconnected {
-				initiatorConnection.Close()
-			}
-		})
-
-		// set initiator SessionDescription
-		err = initiatorConnection.SetRemoteDescription(offer)
-		if err != nil {
-			initiatorAns <- "error: " + err.Error()
-			continue
-		}
-
-		// create answer
-		answer, err := initiatorConnection.CreateAnswer(nil)
-		if err != nil {
-			initiatorAns <- "error: " + err.Error()
-			continue
-		}
-
-		// set local description and start udp listeners
-		err = initiatorConnection.SetLocalDescription(answer)
-		if err != nil {
-			initiatorAns <- "error: " + err.Error()
-			continue
-		}
-
-		// convert json answer into byte slice
-		bytes, err := json.Marshal(answer)
-		if err != nil {
-			initiatorAns <- "error: " + err.Error()
-			continue
-		}
-
-		// encode answer to base64 and send to ans channel
-		initiatorAns <- base64.StdEncoding.EncodeToString(bytes)
-
-		waitForPeers()
+	// if no host available then return error
+	if hostPayloadType == 0 || hostSSRC == 0 {
+		return "", errors.New("no hosts available")
 	}
-}
 
-func waitForPeers() {
+	// connect to first host in channel
+	offer := webrtc.SessionDescription{}
 
-	// wait from inbound ssrc and payload from initiator track
-	outboundSSRC := <-inboundSSRC
-	outboundPayloadType := <-inboundPayloadType
-
-	for {
-
-		offer := webrtc.SessionDescription{}
-
-		// wait from a message to be sent to the sdp channel
-		message := <-peer
-
-		// decode message
-		decodedMessage, err := base64.StdEncoding.DecodeString(message)
-		if err != nil {
-			peerAns <- "error: " + err.Error()
-			continue
-		}
-
-		// unmarshal decodedMessage into offer struct
-		err = json.Unmarshal(decodedMessage, &offer)
-		if err != nil {
-			peerAns <- "error: " + err.Error()
-			continue
-		}
-
-		// create new peer connection
-		peerConnection, err := webrtc.NewPeerConnection(connectionConfig)
-		if err != nil {
-			peerAns <- "error: " + err.Error()
-			continue
-		}
-
-		// Create a single VP8 Track to send video
-		vp8Track, err := peerConnection.NewRawRTPTrack(outboundPayloadType, outboundSSRC, "video", "pion")
-		if err != nil {
-			peerAns <- "error: " + err.Error()
-			continue
-		}
-
-		// Add track to peer connection
-		_, err = peerConnection.AddTrack(vp8Track)
-		if err != nil {
-			peerAns <- "error: " + err.Error()
-			continue
-		}
-
-		outboundRTPLock.Lock()
-		outboundRTP = append(outboundRTP, vp8Track.RawRTP)
-		outboundRTPLock.Unlock()
-
-		// set initiator SessionDescription
-		err = peerConnection.SetRemoteDescription(offer)
-		if err != nil {
-			initiatorAns <- "error: " + err.Error()
-			continue
-		}
-
-		// create answer
-		answer, err := peerConnection.CreateAnswer(nil)
-		if err != nil {
-			initiatorAns <- "error: " + err.Error()
-			continue
-		}
-
-		// convert json answer into byte slice
-		bytes, err := json.Marshal(answer)
-		if err != nil {
-			initiatorAns <- "error: " + err.Error()
-			continue
-		}
-
-		// encode answer to base64 and send to ans channel
-		peerAns <- base64.StdEncoding.EncodeToString(bytes)
-
+	// decode message
+	decodedMessage, err := base64.StdEncoding.DecodeString(clientKey)
+	if err != nil {
+		return "", err
 	}
+
+	// unmarshal decodedMessage into offer struct
+	err = json.Unmarshal(decodedMessage, &offer)
+	if err != nil {
+		return "", err
+	}
+
+	// create new peer connection
+	peerConnection, err := webrtc.NewPeerConnection(connectionConfig)
+	if err != nil {
+		return "", err
+	}
+
+	// Create a single VP8 Track to send video
+	vp8Track, err := peerConnection.NewRawRTPTrack(hostPayloadType, hostSSRC, "video", "pion")
+	if err != nil {
+		return "", err
+	}
+
+	// Add track to peer connection
+	_, err = peerConnection.AddTrack(vp8Track)
+	if err != nil {
+		return "", err
+	}
+
+	// append track to outboundrtp channel so host can stream to new peer
+	mutex.Lock()
+	outboundRTP = append(outboundRTP, vp8Track.RawRTP)
+	mutex.Unlock()
+
+	// set initiator SessionDescription
+	err = peerConnection.SetRemoteDescription(offer)
+	if err != nil {
+		return "", err
+	}
+
+	// create answer
+	answer, err := peerConnection.CreateAnswer(nil)
+	if err != nil {
+		return "", err
+	}
+
+	// convert json answer into byte slice
+	bytes, err := json.Marshal(answer)
+	if err != nil {
+		return "", err
+	}
+
+	// encode answer to base64 and send to ans channel
+	return base64.StdEncoding.EncodeToString(bytes), nil
 }
