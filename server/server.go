@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	_ "github.com/joho/godotenv/autoload"
 	"github.com/labstack/echo"
 	"github.com/labstack/echo/middleware"
 	"github.com/pions/rtcp"
@@ -104,7 +105,7 @@ func main() {
 	})
 
 	// Start server
-	e.Logger.Fatal(e.Start(os.Getenv("PORT")))
+	e.Logger.Fatal(e.Start(":" + os.Getenv("PORT")))
 
 }
 
