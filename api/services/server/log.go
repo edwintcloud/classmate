@@ -1,4 +1,4 @@
-package main
+package server
 
 import (
 	"io"
@@ -25,10 +25,19 @@ func (s *Server) InitLogger(name string) {
 
 // Error handles errors for our server by logging to
 // stdout and file
-func Error(msg string, status int) bson.M {
-	log.Println(msg)
+func Error(err error, status int) bson.M {
+	log.Println(err.Error())
 	return bson.M{
-		"error":  msg,
+		"error":  err.Error(),
 		"status": status,
+	}
+}
+
+// Success handles success messages for our server
+// by returning json
+func Success() bson.M {
+	return bson.M{
+		"message": "OK",
+		"status":  200,
 	}
 }
