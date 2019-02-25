@@ -1,8 +1,10 @@
 package attendance
 
 import (
+	"github.com/dgrijalva/jwt-go"
 	"github.com/edwintcloud/classmate/api/services/server"
 	"github.com/globalsign/mgo"
+	"github.com/globalsign/mgo/bson"
 	"github.com/labstack/echo"
 )
 
@@ -84,4 +86,40 @@ func LoginPerson(c echo.Context) error {
 
 	// return person
 	return c.JSON(200, person)
+}
+
+// CreateClass creates a class
+func CreateClass(c echo.Context) error {
+	class := Class{}
+	person := Person{}
+
+	// bind req body to class
+	err := c.Bind(&class)
+	if err != nil {
+		return c.JSON(400, server.Error(err, 400))
+	}
+
+	// get person from jwt
+	payload := (c.Get("user").(*jwt.Token)).Claims.(jwt.MapClaims)
+	person.ID = bson.ObjectIdHex(payload["id"].(string))
+
+	// find person in db
+	err = person.Find()
+	if err != nil {
+		return c.JSON(421, server.Error(err, 421))
+	}
+
+	// ensure person has role of admin
+	if person.Role != "admin" {
+		return c.JSON(421, server.Error("Only admins can create a class", 421))
+	}
+
+	// create class
+	err = class.Create()
+	if err != nil {
+		return c.JSON(400, server.Error(err, 400))
+	}
+
+	// return OK
+	return c.JSON(200, server.Success())
 }

@@ -25,10 +25,17 @@ func (s *Server) InitLogger(name string) {
 
 // Error handles errors for our server by logging to
 // stdout and file
-func Error(err error, status int) bson.M {
-	log.Println(err.Error())
+func Error(err interface{}, status int) bson.M {
+	msg := ""
+	switch v := err.(type) {
+	case error:
+		msg = v.Error()
+	case string:
+		msg = v
+	}
+	log.Println(msg)
 	return bson.M{
-		"error":  err.Error(),
+		"error":  msg,
 		"status": status,
 	}
 }

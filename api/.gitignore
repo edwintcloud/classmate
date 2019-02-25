@@ -48,3 +48,4 @@
 
 # End of https://www.gitignore.io/api/linux,visualstudiocode,go
 .env
+server_logs.txt

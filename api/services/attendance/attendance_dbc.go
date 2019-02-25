@@ -67,3 +67,8 @@ func (p *Person) Authenticate(password []byte) error {
 	return err
 
 }
+
+// Create a class
+func (c *Class) Create() error {
+	return db.classes.Insert(&c)
+}

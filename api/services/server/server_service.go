@@ -8,18 +8,9 @@ import (
 	uuid "github.com/satori/go.uuid"
 
 	"github.com/globalsign/mgo"
-	"github.com/globalsign/mgo/bson"
 	"github.com/labstack/echo"
 	"github.com/labstack/echo/middleware"
 )
-
-// NewError is type to reference our server Error function
-// log.go
-type NewError func(error, int) bson.M
-
-// NewSuccess is type to reference our server Success function
-// log.go
-type NewSuccess func() bson.M
 
 // Server is our echo server struct
 type Server struct {
