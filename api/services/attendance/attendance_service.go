@@ -6,6 +6,7 @@ import (
 	"github.com/globalsign/mgo"
 	"github.com/globalsign/mgo/bson"
 	"github.com/labstack/echo"
+	"github.com/labstack/echo/middleware"
 )
 
 var (
@@ -27,10 +28,19 @@ func Register(svr *server.Server) {
 	db.classes = s.Db.C("classes")
 
 	s.Echo.POST("/api/v1/persons", CreatePerson)
+	s.Echo.POST("/api/v1/persons/login", LoginPerson)
 
 	s.Echo.GET("/", func(c echo.Context) error {
 		return c.JSON(200, server.Success())
 	})
+
+	// authorized routes
+	routes := s.Echo.Group("/api/v1")
+	routes.Use(middleware.JWT(s.JwtSecret))
+	{
+		routes.GET("/persons/classes", GetClassList)
+		routes.POST("/classes", CreateClass)
+	}
 }
 
 // CreatePerson is the a new person route
@@ -78,7 +88,7 @@ func LoginPerson(c echo.Context) error {
 	// authenticate person
 	err = person.Authenticate(person.Password)
 	if err != nil {
-		return c.JSON(421, server.Error(err, 421))
+		return c.JSON(401, server.Error(err, 401))
 	}
 
 	// set Password to ""
@@ -106,12 +116,12 @@ func CreateClass(c echo.Context) error {
 	// find person in db
 	err = person.Find()
 	if err != nil {
-		return c.JSON(421, server.Error(err, 421))
+		return c.JSON(401, server.Error(err, 401))
 	}
 
 	// ensure person has role of admin
 	if person.Role != "admin" {
-		return c.JSON(421, server.Error("Only admins can create a class", 421))
+		return c.JSON(401, server.Error("Only admins can create a class", 401))
 	}
 
 	// create class
@@ -122,4 +132,34 @@ func CreateClass(c echo.Context) error {
 
 	// return OK
 	return c.JSON(200, server.Success())
+}
+
+// GetClassList returns list of classes for current person
+func GetClassList(c echo.Context) error {
+	classes := []Class{}
+	person := Person{}
+
+	// get person from jwt
+	payload := (c.Get("user").(*jwt.Token)).Claims.(jwt.MapClaims)
+	person.ID = bson.ObjectIdHex(payload["id"].(string))
+
+	// find person in db
+	err := person.Find()
+	if err != nil {
+		return c.JSON(401, server.Error(err, 401))
+	}
+
+	// loop through class id for person and find class in db
+	// then append to classes
+	for _, id := range person.Classes {
+		class := Class{ID: id}
+		err = class.Find()
+		if err != nil {
+			return c.JSON(400, server.Error(err, 400))
+		}
+		classes = append(classes, class)
+	}
+
+	// return classes
+	return c.JSON(200, classes)
 }

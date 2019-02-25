@@ -5,7 +5,7 @@ post, create new person with student role
 
 post, login to cli (respond with jwt)
 
-post, logout of cli
+logout of cli
 
 get list current class for term
 

@@ -72,3 +72,8 @@ func (p *Person) Authenticate(password []byte) error {
 func (c *Class) Create() error {
 	return db.classes.Insert(&c)
 }
+
+// Find a class by _id
+func (c *Class) Find() error {
+	return db.classes.FindId(c.ID).One(&c)
+}
