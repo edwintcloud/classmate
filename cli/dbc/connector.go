@@ -19,7 +19,7 @@ var (
 	host = "http://localhost:9000/api/v1"
 )
 
-// create person
+// CreatePerson makes a post request to create a new person
 func CreatePerson(person *bson.M) error {
 	result := bson.M{}
 
