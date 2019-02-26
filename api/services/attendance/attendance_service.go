@@ -69,7 +69,7 @@ func CreatePerson(c echo.Context) error {
 	}
 
 	// set Password to ""
-	person.Password = []byte("")
+	person.Password = ""
 
 	// return person
 	return c.JSON(200, person)
@@ -92,7 +92,7 @@ func LoginPerson(c echo.Context) error {
 	}
 
 	// set Password to ""
-	person.Password = []byte("")
+	person.Password = ""
 
 	// return person
 	return c.JSON(200, person)

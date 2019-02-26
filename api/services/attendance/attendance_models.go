@@ -21,12 +21,12 @@ type Class struct {
 
 // Person is our student and instructor model
 type Person struct {
-	ID        bson.ObjectId   `json:"_id,omitempty" bson:"_id,omitempty"`
+	ID        bson.ObjectId   `json:"-" bson:"_id,omitempty"`
 	Email     string          `json:"email" bson:"email"`
-	Password  []byte          `json:"password,omitempty" bson:"password"`
+	Password  string          `json:"password,omitempty" bson:"password"`
 	FirstName string          `json:"first_name" bson:"first_name"`
 	LastName  string          `json:"last_name" bson:"last_name"`
-	Role      string          `json:"role" bson:"role"`
+	Role      string          `json:"-" bson:"role"`
 	Token     string          `json:"token,omitempty" bson:"-"`
 	Classes   []bson.ObjectId `json:"classes" bson:"classes"`
 }

@@ -17,9 +17,11 @@ func (p *Person) Create() (err error) {
 	// TODO: validation
 
 	// hash password
-	if p.Password, err = bcrypt.GenerateFromPassword(p.Password, 6); err != nil {
+	password, err := bcrypt.GenerateFromPassword([]byte(p.Password), 6)
+	if err != nil {
 		return err
 	}
+	p.Password = string(password)
 
 	// create new person in db
 	return db.persons.Insert(&p)
@@ -39,7 +41,7 @@ func (p *Person) Find() error {
 }
 
 // Authenticate authenticates a person an generates an authorization jwt
-func (p *Person) Authenticate(password []byte) error {
+func (p *Person) Authenticate(password string) error {
 
 	// find person by email
 	err := p.Find()
@@ -48,7 +50,7 @@ func (p *Person) Authenticate(password []byte) error {
 	}
 
 	// ensure password matches
-	err = bcrypt.CompareHashAndPassword(p.Password, password)
+	err = bcrypt.CompareHashAndPassword([]byte(p.Password), []byte(password))
 	if err != nil {
 		return err
 	}
