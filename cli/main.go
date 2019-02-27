@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"syscall"
 
 	"github.com/edwintcloud/classmate/cli/dbc"
 	"github.com/globalsign/mgo/bson"
 	format "github.com/labstack/gommon/color"
+	"golang.org/x/crypto/ssh/terminal"
 )
 
 var (
@@ -21,6 +23,11 @@ var (
 )
 
 func main() {
+
+	// open sqlite db
+	db := dbc.Open()
+	defer db.Close()
+
 	for !stop {
 		dashboard()
 	}
@@ -39,6 +46,7 @@ func dashboard() {
 	case "1":
 		signup()
 	case "2":
+		login()
 	case "3":
 		stop = true
 	default:
@@ -66,20 +74,33 @@ func signup() {
 	// verify input
 	if confirmPassword != person["password"] {
 		print(format.Red("\nPasswords must match!"))
-		signup()
+		dashboard()
 	} else {
 
 		// create person
 		err := dbc.CreatePerson(&person)
 		if err != nil {
 			print(format.Red("\n" + err.Error()))
-			signup()
+			dashboard()
 		}
 	}
 }
 
 // Login
 func login() {
+	person := bson.M{}
+
+	// get input
+	print(format.Underline("\nLogin\n"))
+	print(format.Cyan("Please enter email:"))
+	person["email"] = getInput()
+	print(format.Cyan("Please enter password:"))
+	person["password"] = getHiddenInput()
+	err := dbc.LoginPerson(&person)
+	if err != nil {
+		print(format.Red("\n" + err.Error()))
+		dashboard()
+	}
 
 }
 
@@ -89,4 +110,12 @@ func getInput() string {
 	fmt.Print("> ")
 	sentence, _ := buf.ReadString('\n')
 	return strings.Replace(sentence, "\n", "", -1)
+}
+
+// wait for input (hidden)
+func getHiddenInput() string {
+	fmt.Print("> ")
+	bytePassword, _ := terminal.ReadPassword(int(syscall.Stdin))
+	fmt.Print("\n")
+	return string(bytePassword)
 }

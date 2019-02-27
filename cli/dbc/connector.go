@@ -28,6 +28,8 @@ func CreatePerson(person *bson.M) error {
 	if err != nil {
 		return err
 	}
+
+	// make post request
 	resp, err := client.Post(host+"/persons", "application/json", bytes.NewBuffer(bodyBytes))
 	if err != nil {
 		return err
@@ -38,6 +40,35 @@ func CreatePerson(person *bson.M) error {
 	if err != nil {
 		return err
 	}
+
+	fmt.Println(result)
+	return err
+}
+
+// LoginPerson makes a post request to login a person
+func LoginPerson(person *bson.M) error {
+	result := User{}
+
+	// marshal data into json string
+	bodyBytes, err := json.Marshal(person)
+	if err != nil {
+		return err
+	}
+
+	// make post request
+	resp, err := client.Post(host+"/persons/login", "application/json", bytes.NewBuffer(bodyBytes))
+	if err != nil {
+		return err
+	}
+
+	// unmarshal result into result and store in localdb
+	err = json.NewDecoder(resp.Body).Decode(&result)
+	if err != nil {
+		return err
+	}
+
+	// save user to localdb
+	result.Save()
 
 	fmt.Println(result)
 	return err
