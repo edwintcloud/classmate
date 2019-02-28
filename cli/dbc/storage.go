@@ -18,6 +18,7 @@ type User struct {
 	Email     string `json:"email"`
 	FirstName string `json:"first_name"`
 	LastName  string `json:"last_name"`
+	Role      string `json:"role"`
 	Token     string `json:"token"`
 }
 
@@ -40,5 +41,12 @@ func Open() *gorm.DB {
 
 // Save saves user
 func (u *User) Save() {
-	DB.Create(u)
+	DB.FirstOrCreate(&u, User{Email: u.Email})
+}
+
+// GetUser gets user from local db
+func GetUser() *User {
+	u := User{}
+	DB.First(&u, 1)
+	return &u
 }

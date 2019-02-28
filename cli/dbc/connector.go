@@ -3,7 +3,6 @@ package dbc
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"time"
 
@@ -21,7 +20,7 @@ var (
 
 // CreatePerson makes a post request to create a new person
 func CreatePerson(person *bson.M) error {
-	result := bson.M{}
+	result := User{}
 
 	// marshal data into json string
 	bodyBytes, err := json.Marshal(person)
@@ -41,7 +40,9 @@ func CreatePerson(person *bson.M) error {
 		return err
 	}
 
-	fmt.Println(result)
+	// save user to localdb
+	result.Save()
+
 	return err
 }
 
@@ -70,6 +71,5 @@ func LoginPerson(person *bson.M) error {
 	// save user to localdb
 	result.Save()
 
-	fmt.Println(result)
 	return err
 }

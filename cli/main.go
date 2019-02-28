@@ -20,6 +20,7 @@ var (
 	invert    = format.In
 	dim       = format.D
 	stop      = false
+	user      *dbc.User
 )
 
 func main() {
@@ -28,10 +29,92 @@ func main() {
 	db := dbc.Open()
 	defer db.Close()
 
-	for !stop {
-		dashboard()
-	}
+	start()
+
 	print(format.Yellow("\nGoodbye!"))
+}
+
+func start() {
+	user = dbc.GetUser()
+	if user.Role == "student" {
+		for !stop {
+			studentDashboard()
+		}
+	} else if user.Role == "teacher" {
+		for !stop {
+			teacherDashboard()
+		}
+	} else if user.Role == "admin" {
+		for !stop {
+			adminDashboard()
+		}
+	} else {
+		for !stop {
+			dashboard()
+		}
+	}
+}
+
+// User Dashboard
+func studentDashboard() {
+	print(format.Underline("\nWelcome to Classmate "+user.FirstName+"!"), "\n")
+	print(format.Green("1.) Check in to class"))
+	print(format.Cyan("2.) List classes"))
+	print(format.Red("3.) Exit"), "\n")
+	print("Please make a selection:")
+	choice := getInput()
+	switch choice {
+	case "1":
+		signup()
+	case "2":
+		login()
+	case "3":
+		stop = true
+	default:
+		print(format.Magenta("\nInvalid input!"))
+	}
+}
+
+// Teacher Dashboard
+func teacherDashboard() {
+	print(format.Underline("\nWelcome to Classmate "+user.FirstName+"!"), "\n")
+	print(format.Green("1.) View current attendance"))
+	print(format.Cyan("2.) List classes"))
+	print(format.Red("3.) Exit"), "\n")
+	print("Please make a selection:")
+	choice := getInput()
+	switch choice {
+	case "1":
+		signup()
+	case "2":
+		login()
+	case "3":
+		stop = true
+	default:
+		print(format.Magenta("\nInvalid input!"))
+	}
+}
+
+// Admin Dashboard
+func adminDashboard() {
+	print(format.Underline("\nWelcome to Classmate "+user.FirstName+"!"), "\n")
+	print(format.Green("1.) Add Class"))
+	print(format.Cyan("2.) Enroll students"))
+	print(format.Cyan("3.) List classes"))
+	print(format.Cyan("4.) List users"))
+	print(format.Red("5.) Exit"), "\n")
+	print("Please make a selection:")
+	choice := getInput()
+	switch choice {
+	case "1":
+		signup()
+	case "2":
+		login()
+	case "5":
+		stop = true
+	default:
+		print(format.Magenta("\nInvalid input!"))
+	}
 }
 
 // Dashboard
@@ -63,9 +146,9 @@ func signup() {
 	print(format.Cyan("Please enter email:"))
 	person["email"] = getInput()
 	print(format.Cyan("Please enter password:"))
-	person["password"] = getInput()
+	person["password"] = getHiddenInput()
 	print(format.Cyan("Please confirm password:"))
-	confirmPassword := getInput()
+	confirmPassword := getHiddenInput()
 	print(format.Cyan("Please enter first name:"))
 	person["first_name"] = getInput()
 	print(format.Cyan("Please enter last name:"))
@@ -74,14 +157,14 @@ func signup() {
 	// verify input
 	if confirmPassword != person["password"] {
 		print(format.Red("\nPasswords must match!"))
-		dashboard()
 	} else {
 
 		// create person
 		err := dbc.CreatePerson(&person)
 		if err != nil {
 			print(format.Red("\n" + err.Error()))
-			dashboard()
+		} else {
+			start()
 		}
 	}
 }
@@ -99,7 +182,8 @@ func login() {
 	err := dbc.LoginPerson(&person)
 	if err != nil {
 		print(format.Red("\n" + err.Error()))
-		dashboard()
+	} else {
+		start()
 	}
 
 }

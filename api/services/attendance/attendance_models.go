@@ -26,7 +26,7 @@ type Person struct {
 	Password  string          `json:"password,omitempty" bson:"password"`
 	FirstName string          `json:"first_name" bson:"first_name"`
 	LastName  string          `json:"last_name" bson:"last_name"`
-	Role      string          `json:"-" bson:"role"`
+	Role      string          `json:"role" bson:"role"`
 	Token     string          `json:"token,omitempty" bson:"-"`
 	Classes   []bson.ObjectId `json:"classes" bson:"classes"`
 }
